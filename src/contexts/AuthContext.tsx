@@ -56,11 +56,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const login: AuthCtx["login"] = async (email, password) => {
+const login: AuthCtx["login"] = async (email, password) => {
+    // SAFETY: Explicitly verify we're calling signIn, not signup
+    console.debug("[Auth] Login attempt for:", email);
     return signInWithEmail(email, password);
   };
 
   const signup: AuthCtx["signup"] = async ({ name, email, password, role }) => {
+    // SAFETY: Explicitly verify we're calling signup, not login
+    console.debug("[Auth] Signup attempt for:", email, "as", role);
     return signupWithEmail(email, password, name, role);
   };
 

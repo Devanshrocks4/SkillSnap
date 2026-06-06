@@ -36,9 +36,10 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
       return;
     }
 
-    setLoading(true);
+setLoading(true);
     try {
       if (mode === "login") {
+        console.log("AUTH MODE:", mode); // DEBUG: Verify login mode
         const res = await login(email, password);
         if (res.ok) {
           showSuccess("Welcome back!");
@@ -46,7 +47,8 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
         } else {
           showError(res.error || "Login failed");
         }
-      } else {
+} else {
+        console.log("AUTH MODE:", mode); // DEBUG: Verify signup mode
         const res = await signup({ name, email, password, role });
         if (res.ok) {
           showSuccess("Account created! Please check your email to verify.");
