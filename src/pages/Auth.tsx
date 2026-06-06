@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Sparkles, ArrowLeft, Mail, Lock, User, Shield, Briefcase, UserCircle2 } from "lucide-react";
 import { Logo, AuroraBackground } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../contexts/ToastContext";
 import type { UserRole } from "../lib/types";
 
 export function LoginPage() {
@@ -15,10 +16,10 @@ export function SignupPage() {
 }
 
 function AuthShell({ mode }: { mode: "login" | "signup" }) {
-  const { login, signup, demoLogin } = useAuth();
+  const { login, signup } = useAuth();
+  const { showError, showSuccess } = useToast();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<UserRole>("candidate");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -26,20 +27,39 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const res =
-      mode === "login"
-        ? await login(email, password, role)
-        : await signup({ name, email, password, role });
-    setLoading(false);
-    if (!res.ok) setError(res.error ?? "Something went wrong");
-    else navigate(roleRoute(role));
-  };
+    if (!email || !password) {
+      showError("Email and password are required.");
+      return;
+    }
+    if (mode === "signup" && !name) {
+      showError("Name is required.");
+      return;
+    }
 
-  const runDemo = (r: UserRole) => {
-    demoLogin(r);
-    navigate(roleRoute(r));
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        const res = await login(email, password);
+        if (res.ok) {
+          showSuccess("Welcome back!");
+          navigate(roleRoute(role));
+        } else {
+          showError(res.error || "Login failed");
+        }
+      } else {
+        const res = await signup({ name, email, password, role });
+        if (res.ok) {
+          showSuccess("Account created! Please check your email to verify.");
+          navigate(roleRoute(role));
+        } else {
+          showError(res.error || "Signup failed");
+        }
+      }
+    } catch {
+      showError("An error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -67,10 +87,10 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
                 </div>
               </div>
 
-              {/* Quick demo */}
+              {/* Features */}
               <div className="mt-10">
                 <div className="text-xs font-medium uppercase tracking-wider text-white/40">
-                  Explore the demo
+                  Features
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {[
@@ -78,18 +98,17 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
                     { r: "recruiter" as UserRole, label: "Recruiter", icon: Briefcase },
                     { r: "admin" as UserRole, label: "Admin", icon: Shield },
                   ].map(({ r, label, icon: Icon }) => (
-                    <button
+                    <div
                       key={r}
-                      onClick={() => runDemo(r)}
-                      className="group flex flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs transition hover:border-violet-500/30 hover:bg-violet-500/5"
+                      className="flex flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs"
                     >
-                      <Icon className="h-4 w-4 text-white/60 transition group-hover:text-violet-300" />
-                      <span className="text-white/70 transition group-hover:text-white">{label}</span>
-                    </button>
+                      <Icon className="h-4 w-4 text-white/60" />
+                      <span className="text-white/70">{label}</span>
+                    </div>
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] text-white/40">
-                  Click any role to enter a fully-featured demo dashboard.
+                  Choose your role when signing up.
                 </p>
               </div>
             </div>
@@ -111,7 +130,7 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
               <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d0d16]/80 to-[#05050a]/80 p-8 shadow-2xl backdrop-blur-xl">
                 <div className="mb-6">
                   <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[11px] text-violet-300">
-                    <Sparkles className="h-3 w-3" /> Public beta
+                    <Sparkles className="h-3 w-3" /> Firebase-powered
                   </div>
                   <h2 className="mt-3 text-2xl font-semibold text-white">
                     {mode === "login" ? "Welcome back" : "Create your account"}
@@ -183,12 +202,6 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
                     </div>
                   )}
 
-                  {error && (
-                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                      {error}
-                    </div>
-                  )}
-
                   <button
                     type="submit"
                     disabled={loading}
@@ -197,26 +210,6 @@ function AuthShell({ mode }: { mode: "login" | "signup" }) {
                     {loading ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}
                   </button>
                 </form>
-
-                <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-white/30">
-                  <div className="h-px flex-1 bg-white/5" /> or <div className="h-px flex-1 bg-white/5" />
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { r: "candidate" as UserRole, label: "Candidate demo" },
-                    { r: "recruiter" as UserRole, label: "Recruiter demo" },
-                    { r: "admin" as UserRole, label: "Admin demo" },
-                  ].map(({ r, label }) => (
-                    <button
-                      key={r}
-                      onClick={() => runDemo(r)}
-                      className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] text-white/70 transition hover:bg-white/[0.06]"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
 
                 <div className="mt-6 text-center text-xs text-white/50">
                   {mode === "login" ? (
@@ -249,7 +242,7 @@ function Field({
   placeholder,
 }: {
   label: string;
-  icon: any;
+  icon: typeof User;
   value: string;
   onChange: (v: string) => void;
   type?: string;

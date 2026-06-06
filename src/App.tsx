@@ -52,10 +52,6 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route
-        path="/demo/:role"
-        element={<DemoRouter />}
-      />
-      <Route
         path="/candidate/*"
         element={
           <ProtectedRoute role="candidate">
@@ -82,17 +78,4 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
-}
-
-function DemoRouter() {
-  const { demoLogin } = useAuth();
-  const navigate = useNavigate();
-  const role = window.location.pathname.split("/").pop() as "candidate" | "recruiter" | "admin";
-  // Immediately log in as demo role and redirect
-  if (!["candidate", "recruiter", "admin"].includes(role)) {
-    return <Navigate to="/" replace />;
-  }
-  demoLogin(role);
-  setTimeout(() => navigate(`/${role}`, { replace: true }), 0);
-  return <AppSkeleton />;
 }

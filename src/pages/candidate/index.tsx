@@ -1,5 +1,5 @@
 import { Routes, Route } from "react-router-dom";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   FileCheck,
@@ -21,28 +21,71 @@ import {
 import { DashboardLayout, PageHeader } from "../../components/DashboardLayout";
 import { StatCard, Badge } from "../../components/ui";
 import { useAuth } from "../../contexts/AuthContext";
-import { mockJobs, mockApplications, mockInterviews, mockOnboarding } from "../../lib/mockData";
 import { recommendJobs, summarizeResume } from "../../lib/ai";
 import type { Application } from "../../lib/types";
+import type { FirestoreJob, FirestoreApplication, FirestoreInterview, FirestoreOnboarding } from "../../types/firestore";
+import { getAllOpenJobs } from "../../services/jobService";
+import { getApplicationsByCandidate } from "../../services/applicationService";
+import { getInterviewsByCandidate } from "../../services/interviewService";
+import { getOnboardingByCandidate } from "../../services/onboardingService";
 
 export function CandidateApp() {
   const { user } = useAuth();
-  // The candidate is the first candidate in our data
-  const myCandidateId = "c1";
-  const myApplications = mockApplications.filter((a) => a.candidateId === myCandidateId);
-  const myInterviews = mockInterviews.filter((iv) =>
-    myApplications.some((a) => a.id === iv.applicationId)
-  );
-  const myOnboarding = mockOnboarding.find((o) => o.candidateId === myCandidateId);
+  const [jobs, setJobs] = useState<FirestoreJob[]>([]);
+  const [applications, setApplications] = useState<FirestoreApplication[]>([]);
+  const [interviews, setInterviews] = useState<FirestoreInterview[]>([]);
+  const [onboarding, setOnboarding] = useState<FirestoreOnboarding | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real data from Firestore
+  useEffect(() => {
+    async function fetchData() {
+      if (!user?.uid) return;
+      try {
+        const [jobsData, appsData, interviewData, onboardingData] = await Promise.all([
+          getAllOpenJobs(),
+          getApplicationsByCandidate(user.uid),
+          getInterviewsByCandidate(user.uid),
+          getOnboardingByCandidate(user.uid),
+        ]);
+        setJobs(jobsData);
+        setApplications(appsData);
+        setInterviews(interviewData);
+        setOnboarding(onboardingData);
+      } catch (error) {
+        console.error("Error fetching candidate data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [user?.uid]);
+
+  // Convert Firestore data to Application type for UI
+  const myApplications: Application[] = applications.map((a) => ({
+    id: a.id,
+    jobId: a.jobId,
+    candidateId: a.candidateId,
+    jobTitle: a.jobTitle || "Unknown Role",
+    company: a.company || "Unknown Company",
+    status: a.status,
+    appliedAt: a.appliedAt || new Date(a.createdAt || new Date()).toLocaleDateString(),
+    aiScore: a.aiScore || 0,
+    skills: a.skills || [],
+    experience: a.experience || 0,
+  }));
+
+  const myInterviews = interviews;
+  const myOnboarding = onboarding;
   const myProfile = {
-    name: user?.name ?? "Ava Chen",
-    title: "Senior Frontend Engineer",
-    skills: ["React", "TypeScript", "Tailwind CSS", "Framer Motion", "Node.js", "GraphQL"],
-    experience: 6,
-    education: "M.S. Computer Science, Stanford",
+    name: user?.name ?? "Candidate",
+    title: "Software Engineer",
+    skills: [],
+    experience: 0,
+    education: "",
   };
 
-  return (
+return (
     <DashboardLayout role="candidate">
       <Routes>
         <Route
@@ -54,9 +97,9 @@ export function CandidateApp() {
             />
           }
         />
-        <Route path="jobs" element={<BrowseJobs profile={myProfile} />} />
+        <Route path="jobs" element={<BrowseJobs jobs={jobs} profile={myProfile} />} />
         <Route path="applications" element={<MyApplications applications={myApplications} />} />
-        <Route path="ai" element={<AIInsights profile={myProfile} />} />
+        <Route path="ai" element={<AIInsights jobs={jobs} profile={myProfile} />} />
         <Route path="interviews" element={<Interviews interviews={myInterviews} />} />
         <Route path="onboarding" element={<OnboardingPage onboarding={myOnboarding} />} />
       </Routes>
@@ -238,14 +281,14 @@ function ApplicationRow({ a }: { a: Application }) {
   );
 }
 
-function BrowseJobs({ profile }: { profile: any }) {
+function BrowseJobs({ jobs, profile }: { jobs: FirestoreJob[]; profile: any }) {
   const [query, setQuery] = useState("");
-  const recs = useMemo(() => recommendJobs(profile.skills, mockJobs), [profile.skills]);
-  const filtered = mockJobs.filter(
-    (j) =>
+  const recs = useMemo(() => recommendJobs(profile.skills, jobs), [profile.skills, jobs]);
+  const filtered = jobs.filter(
+    (j: FirestoreJob) =>
       j.title.toLowerCase().includes(query.toLowerCase()) ||
       j.company.toLowerCase().includes(query.toLowerCase()) ||
-      j.skills.some((s) => s.toLowerCase().includes(query.toLowerCase()))
+      j.skills?.some((s: string) => s.toLowerCase().includes(query.toLowerCase()))
   );
 
   return (
@@ -287,7 +330,7 @@ function BrowseJobs({ profile }: { profile: any }) {
   );
 }
 
-function JobCard({ job, matchScore }: { job: any; matchScore?: number }) {
+function JobCard({ job, matchScore }: { job: FirestoreJob; matchScore?: number }) {
   const [applied, setApplied] = useState(false);
   return (
     <motion.div
@@ -303,18 +346,18 @@ function JobCard({ job, matchScore }: { job: any; matchScore?: number }) {
         </div>
       )}
       <div className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-violet-500/20 to-teal-400/20 text-sm font-semibold text-white">
-        {job.company.slice(0, 1)}
+        {job.company?.slice(0, 1) || "J"}
       </div>
       <div className="text-sm font-semibold text-white">{job.title}</div>
       <div className="mt-0.5 text-xs text-white/50">{job.company}</div>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/60">
         <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {job.location}</span>
         <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {job.type}</span>
-        <span className="inline-flex items-center gap-1"><DollarSign className="h-3 w-3" /> {job.salary}</span>
+        {job.salary && <span className="inline-flex items-center gap-1"><DollarSign className="h-3 w-3" /> {job.salary}</span>}
       </div>
       <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/60">{job.description}</p>
       <div className="mt-3 flex flex-wrap gap-1">
-        {job.skills.slice(0, 4).map((s: string) => (
+        {job.skills?.slice(0, 4).map((s: string) => (
           <Badge key={s}>{s}</Badge>
         ))}
       </div>
@@ -379,8 +422,8 @@ function MyApplications({ applications }: { applications: Application[] }) {
   );
 }
 
-function AIInsights({ profile }: { profile: any }) {
-  const recs = recommendJobs(profile.skills, mockJobs);
+function AIInsights({ jobs, profile }: { jobs: FirestoreJob[]; profile: any }) {
+  const recs = recommendJobs(profile.skills, jobs);
   return (
     <div>
       <PageHeader

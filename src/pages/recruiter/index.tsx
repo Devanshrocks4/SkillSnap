@@ -1,5 +1,5 @@
 import { Routes, Route } from "react-router-dom";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -35,49 +35,115 @@ import {
 } from "recharts";
 import { DashboardLayout, PageHeader } from "../../components/DashboardLayout";
 import { StatCard, Badge } from "../../components/ui";
-import {
-  mockJobs,
-  mockApplications,
-  mockCandidates,
-  mockInterviews,
-  mockOnboarding,
-  mockActivity,
-} from "../../lib/mockData";
+import { useAuth } from "../../contexts/AuthContext";
 import { screenResume, rankCandidates, evaluateInterview } from "../../lib/ai";
 import type { Application } from "../../lib/types";
+import type { FirestoreJob, FirestoreApplication, FirestoreUser, FirestoreInterview, FirestoreOnboarding } from "../../types/firestore";
+import { getJobsByRecruiter, getOpenJobs, getAllJobs } from "../../services/jobService";
+import { getApplicationsByRecruiter, getApplicationsByJob } from "../../services/applicationService";
+import { getUsersByRole, getAllUsers } from "../../services/userService";
+import { getInterviewsByRecruiter, getScheduledInterviews, getCompletedInterviews } from "../../services/interviewService";
+import { getAllOnboarding } from "../../services/onboardingService";
 
 export function RecruiterApp() {
+  const { user } = useAuth();
+  const [jobs, setJobs] = useState<FirestoreJob[]>([]);
+  const [allJobs, setAllJobs] = useState<FirestoreJob[]>([]);
+  const [applications, setApplications] = useState<FirestoreApplication[]>([]);
+  const [candidates, setCandidates] = useState<FirestoreUser[]>([]);
+  const [interviews, setInterviews] = useState<FirestoreInterview[]>([]);
+  const [onboarding, setOnboarding] = useState<FirestoreOnboarding[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real data from Firestore
+  useEffect(() => {
+    async function fetchData() {
+      if (!user?.uid) return;
+      try {
+        const [recruiterJobs, allJobsData, appsData, candidatesData, interviewData, onboardingData] = await Promise.all([
+          getJobsByRecruiter(user.uid),
+          getOpenJobs(),
+          getApplicationsByRecruiter(user.uid),
+          getUsersByRole("candidate"),
+          getInterviewsByRecruiter(user.uid),
+          getAllOnboarding(),
+        ]);
+        setJobs(recruiterJobs);
+        setAllJobs(allJobsData);
+        setApplications(appsData);
+        setCandidates(candidatesData);
+        setInterviews(interviewData);
+        setOnboarding(onboardingData);
+      } catch (error) {
+        console.error("Error fetching recruiter data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [user?.uid]);
+
+  // Filtered data for dashboard
+  const shortlistCount = applications.filter((a) =>
+    ["shortlisted", "interviewed", "offered", "hired"].includes(a.status)
+  ).length;
+  const hiredCount = applications.filter((a) => a.status === "hired").length;
+  const openJobCount = jobs.filter((j) => j.status === "open").length;
+
+  // Pipeline stages from applications
+  const pipeline = [
+    { stage: "Applied", count: applications.filter((a) => a.status === "applied").length },
+    { stage: "Screening", count: applications.filter((a) => a.status === "screening").length },
+    { stage: "Shortlisted", count: applications.filter((a) => a.status === "shortlisted").length },
+    { stage: "Interviewed", count: applications.filter((a) => a.status === "interviewed").length },
+    { stage: "Offered", count: applications.filter((a) => a.status === "offered").length },
+    { stage: "Hired", count: applications.filter((a) => a.status === "hired").length },
+  ];
+
   return (
     <DashboardLayout role="recruiter">
       <Routes>
-        <Route index element={<RecruiterDashboard />} />
-        <Route path="jobs" element={<JobsPage />} />
-        <Route path="candidates" element={<CandidatesPage />} />
-        <Route path="screening" element={<ScreeningPage />} />
-        <Route path="interviews" element={<InterviewsPage />} />
-        <Route path="onboarding" element={<OnboardingPage />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route index element={<RecruiterDashboard 
+          candidates={candidates} 
+          jobs={allJobs} 
+          applications={applications}
+          pipeline={pipeline}
+          shortlistCount={shortlistCount}
+          hiredCount={hiredCount}
+          openJobCount={openJobCount}
+          interviews={interviews}
+        />} />
+        <Route path="jobs" element={<JobsPage jobs={jobs} />} />
+        <Route path="candidates" element={<CandidatesPage candidates={candidates} applications={applications} jobs={jobs} />} />
+        <Route path="screening" element={<ScreeningPage applications={applications} jobs={jobs} />} />
+        <Route path="interviews" element={<InterviewsPage interviews={interviews} />} />
+        <Route path="onboarding" element={<OnboardingPage onboarding={onboarding} />} />
+        <Route path="analytics" element={<AnalyticsPage candidates={candidates} applications={applications} jobs={jobs} />} />
       </Routes>
     </DashboardLayout>
   );
 }
 
-function RecruiterDashboard() {
-  const shortlisted = mockApplications.filter((a) =>
-    ["shortlisted", "interviewed", "offered", "hired"].includes(a.status)
-  ).length;
-  const hired = mockApplications.filter((a) => a.status === "hired").length;
-  const openJobs = mockJobs.filter((j) => j.status === "open").length;
+interface RecruiterDashboardProps {
+  candidates: FirestoreUser[];
+  jobs: FirestoreJob[];
+  applications: FirestoreApplication[];
+  pipeline: { stage: string; count: number }[];
+  shortlistCount: number;
+  hiredCount: number;
+  openJobCount: number;
+  interviews: FirestoreInterview[];
+}
 
-  const pipeline = [
-    { stage: "Applied", count: mockApplications.filter((a) => a.status === "applied").length },
-    { stage: "Screening", count: mockApplications.filter((a) => a.status === "screening").length },
-    { stage: "Shortlisted", count: mockApplications.filter((a) => a.status === "shortlisted").length },
-    { stage: "Interviewed", count: mockApplications.filter((a) => a.status === "interviewed").length },
-    { stage: "Offered", count: mockApplications.filter((a) => a.status === "offered").length },
-    { stage: "Hired", count: mockApplications.filter((a) => a.status === "hired").length },
-  ];
-
+function RecruiterDashboard({
+  candidates,
+  jobs,
+  applications,
+  pipeline,
+  shortlistCount,
+  hiredCount,
+  openJobCount,
+}: RecruiterDashboardProps) {
   const weeklyTrend = [
     { d: "Mon", apps: 12, hires: 1 },
     { d: "Tue", apps: 18, hires: 0 },
@@ -113,10 +179,10 @@ function RecruiterDashboard() {
         <motion.div 
           whileHover={{ y: -8, rotateX: 5, rotateY: -5 }} 
           transition={{ duration: 0.3 }}
-          className="depth-card tilt-3d rounded-2xl"
+className="depth-card tilt-3d rounded-2xl"
           style={{ background: 'linear-gradient(135deg, rgba(124,92,255,0.05) 0%, rgba(94,234,212,0.02) 100%)' }}
         >
-          <StatCard label="Total Candidates" value={mockCandidates.length} icon={<Users className="h-4 w-4" />} accent="brand" />
+          <StatCard label="Total Candidates" value={candidates.length} icon={<Users className="h-4 w-4" />} accent="brand" />
         </motion.div>
         <motion.div 
           whileHover={{ y: -8, rotateX: 5, rotateY: -5 }} 
@@ -124,7 +190,7 @@ function RecruiterDashboard() {
           className="depth-card tilt-3d rounded-2xl"
           style={{ background: 'linear-gradient(135deg, rgba(94,234,212,0.05) 0%, rgba(124,92,255,0.02) 100%)' }}
         >
-          <StatCard label="Active Jobs" value={openJobs} icon={<Briefcase className="h-4 w-4" />} accent="teal" />
+          <StatCard label="Active Jobs" value={openJobCount} icon={<Briefcase className="h-4 w-4" />} accent="teal" />
         </motion.div>
         <motion.div 
           whileHover={{ y: -8, rotateX: 5, rotateY: -5 }} 
@@ -132,7 +198,7 @@ function RecruiterDashboard() {
           className="depth-card tilt-3d rounded-2xl"
           style={{ background: 'linear-gradient(135deg, rgba(255,126,182,0.05) 0%, rgba(124,92,255,0.02) 100%)' }}
         >
-          <StatCard label="Shortlisted" value={shortlisted} icon={<Star className="h-4 w-4" />} accent="pink" />
+          <StatCard label="Shortlisted" value={shortlistCount} icon={<Star className="h-4 w-4" />} accent="pink" />
         </motion.div>
         <motion.div 
           whileHover={{ y: -8, rotateX: 5, rotateY: -5 }} 
@@ -140,7 +206,7 @@ function RecruiterDashboard() {
           className="depth-card tilt-3d rounded-2xl"
           style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.05) 0%, rgba(255,126,182,0.02) 100%)' }}
         >
-          <StatCard label="Hired" value={hired} icon={<CheckCircle2 className="h-4 w-4" />} accent="amber" delta="+12% vs last month" />
+          <StatCard label="Hired" value={hiredCount} icon={<CheckCircle2 className="h-4 w-4" />} accent="amber" delta="+12% vs last month" />
         </motion.div>
       </motion.div>
 
@@ -215,26 +281,20 @@ function RecruiterDashboard() {
             </div>
             <a href="#/recruiter/candidates" className="text-xs text-violet-300 hover:text-violet-200">View all →</a>
           </div>
-          <div className="divide-y divide-white/5">
-            {mockCandidates
-              .sort((a, b) => (b.aiScore ?? 0) - (a.aiScore ?? 0))
+<div className="divide-y divide-white/5">
+            {candidates
               .slice(0, 5)
-              .map((c) => (
-                <div key={c.id} className="flex items-center gap-4 px-5 py-3">
+              .map((c: FirestoreUser) => (
+                <div key={c.uid} className="flex items-center gap-4 px-5 py-3">
                   <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
-                    {c.name.split(" ").map((n) => n[0]).join("")}
+                    {c.name.split(" ").map((n: string) => n[0]).join("")}
                   </div>
                   <div className="flex-1">
                     <div className="text-sm font-medium text-white">{c.name}</div>
-                    <div className="text-xs text-white/50">{c.title} · {c.experience}y exp · {c.location}</div>
-                  </div>
-                  <div className="hidden flex-wrap gap-1 md:flex">
-                    {c.skills.slice(0, 3).map((s) => (
-                      <Badge key={s}>{s}</Badge>
-                    ))}
+                    <div className="text-xs text-white/50">{c.email}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold text-white">{c.aiScore}</div>
+                    <div className="text-sm font-semibold text-white">--</div>
                     <div className="text-[10px] uppercase text-white/40">AI Score</div>
                   </div>
                 </div>
@@ -246,30 +306,7 @@ function RecruiterDashboard() {
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
           <div className="mb-4 text-sm font-semibold text-white">Live activity</div>
           <div className="space-y-3">
-            {mockActivity.map((a) => {
-              const colors: Record<string, string> = {
-                apply: "bg-violet-500/10 text-violet-300 border-violet-500/20",
-                ai: "bg-teal-500/10 text-teal-300 border-teal-500/20",
-                shortlist: "bg-amber-500/10 text-amber-300 border-amber-500/20",
-                interview: "bg-pink-500/10 text-pink-300 border-pink-500/20",
-                job: "bg-sky-500/10 text-sky-300 border-sky-500/20",
-                onboard: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
-              };
-              return (
-                <div key={a.id} className="flex items-start gap-3 text-xs">
-                  <div className={`mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-md border ${colors[a.type]}`}>
-                    {a.type === "ai" ? <Sparkles className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-white/80">
-                      <span className="font-medium text-white">{a.who}</span> {a.action}{" "}
-                      <span className="text-white">{a.target}</span>
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-white/40">{a.time}</div>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="text-xs text-white/50">No recent activity</div>
           </div>
         </div>
       </div>
@@ -277,12 +314,16 @@ function RecruiterDashboard() {
   );
 }
 
-function JobsPage() {
+interface JobsPageProps {
+  jobs: FirestoreJob[];
+}
+
+function JobsPage({ jobs }: JobsPageProps) {
   const [query, setQuery] = useState("");
-  const filtered = mockJobs.filter(
-    (j) =>
+  const filtered = jobs.filter(
+    (j: FirestoreJob) =>
       j.title.toLowerCase().includes(query.toLowerCase()) ||
-      j.company.toLowerCase().includes(query.toLowerCase())
+      j.company?.toLowerCase().includes(query.toLowerCase())
   );
   return (
     <div>
@@ -342,21 +383,22 @@ function JobsPage() {
   );
 }
 
-function CandidatesPage() {
+interface CandidatesPageProps {
+  candidates: FirestoreUser[];
+  applications: FirestoreApplication[];
+  jobs: FirestoreJob[];
+}
+
+function CandidatesPage({ candidates, applications, jobs }: CandidatesPageProps) {
   const [query, setQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"score" | "experience">("score");
 
   const filtered = useMemo(() => {
-    const list = mockCandidates.filter(
-      (c) =>
-        c.name.toLowerCase().includes(query.toLowerCase()) ||
-        c.skills.some((s) => s.toLowerCase().includes(query.toLowerCase())) ||
-        c.title.toLowerCase().includes(query.toLowerCase())
+    const list = candidates.filter(
+      (c: FirestoreUser) =>
+        c.name.toLowerCase().includes(query.toLowerCase())
     );
-    return list.sort((a, b) =>
-      sortBy === "score" ? (b.aiScore ?? 0) - (a.aiScore ?? 0) : b.experience - a.experience
-    );
-  }, [query, sortBy]);
+    return list;
+  }, [candidates, query]);
 
   return (
     <div>
@@ -367,21 +409,13 @@ function CandidatesPage() {
           <>
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40 group-hover:text-white/60 transition" />
-              <input
+<input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name or skill..."
+                placeholder="Search by name..."
                 className="w-64 rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-9 pr-3 text-xs text-white placeholder-white/30 focus:border-violet-500/40 focus:outline-none transition-all"
               />
             </div>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white focus:border-violet-500/40 focus:outline-none"
-            >
-              <option value="score">Sort by AI Score</option>
-              <option value="experience">Sort by Experience</option>
-            </select>
           </>
         }
       />
@@ -456,10 +490,18 @@ function CandidatesPage() {
   );
 }
 
-function ScreeningPage() {
-  const targetJob = mockJobs[0]; // Senior Frontend Engineer
-  const jobApplications = mockApplications.filter((a) => a.jobId === targetJob.id);
-  const ranked = useMemo(() => rankCandidates(jobApplications, targetJob.skills), [jobApplications]);
+interface ScreeningPageProps {
+  applications: FirestoreApplication[];
+  jobs: FirestoreJob[];
+}
+
+function ScreeningPage({ applications, jobs }: ScreeningPageProps) {
+  const targetJob = jobs[0]; // First job from Firestore
+  const jobApplications = applications.filter((a: FirestoreApplication) => a.jobId === targetJob?.id);
+  const ranked = useMemo(() => {
+    if (!targetJob) return [];
+    return rankCandidates(jobApplications as unknown as Application[], targetJob.skills || []);
+  }, [jobApplications, targetJob]);
   const [selected, setSelected] = useState<Application | null>(null);
   const [screening, setScreening] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -671,7 +713,11 @@ function ScreeningPage() {
   );
 }
 
-function InterviewsPage() {
+interface InterviewsPageProps {
+  interviews: FirestoreInterview[];
+}
+
+function InterviewsPage({ interviews }: InterviewsPageProps) {
   const [evaluating, setEvaluating] = useState<string | null>(null);
   const [evalResult, setEvalResult] = useState<any>(null);
   const [transcript, setTranscript] = useState(
@@ -685,6 +731,10 @@ function InterviewsPage() {
     setEvalResult(r);
     setEvaluating(null);
   };
+
+  // Filter interviews by status
+  const scheduledInterviews = interviews.filter((i: FirestoreInterview) => i.status === "scheduled");
+  const completedInterviews = interviews.filter((i: FirestoreInterview) => i.status === "completed");
 
   return (
     <div>
@@ -704,41 +754,49 @@ function InterviewsPage() {
           <div className="rounded-2xl border border-white/5 bg-white/[0.02]">
             <div className="border-b border-white/5 px-5 py-3 text-sm font-semibold text-white">Upcoming</div>
             <div className="divide-y divide-white/5">
-              {mockInterviews.filter((i) => i.status === "scheduled").map((iv) => (
-                <div key={iv.id} className="flex items-center gap-3 px-5 py-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5">
-                    <Calendar className="h-4 w-4 text-amber-300" />
+              {scheduledInterviews.length === 0 ? (
+                <div className="px-5 py-3 text-xs text-white/50">No scheduled interviews</div>
+              ) : (
+                scheduledInterviews.map((iv: FirestoreInterview) => (
+                  <div key={iv.id} className="flex items-center gap-3 px-5 py-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5">
+                      <Calendar className="h-4 w-4 text-amber-300" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-white">{iv.candidateId}</div>
+                      <div className="text-xs text-white/50">{iv.jobId} · {iv.scheduledAt ? new Date(iv.scheduledAt).toLocaleString() : 'TBD'}</div>
+                    </div>
+                    <Badge tone="warning">scheduled</Badge>
                   </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-white">{iv.candidateName}</div>
-                    <div className="text-xs text-white/50">{iv.role} · {new Date(iv.scheduledAt).toLocaleString()}</div>
-                  </div>
-                  <Badge tone="warning">scheduled</Badge>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
           <div className="rounded-2xl border border-white/5 bg-white/[0.02]">
             <div className="border-b border-white/5 px-5 py-3 text-sm font-semibold text-white">Completed</div>
             <div className="divide-y divide-white/5">
-              {mockInterviews.filter((i) => i.status === "completed").map((iv) => (
-                <div key={iv.id} className="flex items-center gap-3 px-5 py-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
-                    {iv.candidateName.split(" ").map((n) => n[0]).join("")}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-white">{iv.candidateName}</div>
-                    <div className="text-xs text-white/50">{iv.role}</div>
-                  </div>
-                  {iv.overallScore && (
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-white">{iv.overallScore}</div>
-                      <div className="text-[10px] text-white/40">overall</div>
+              {completedInterviews.length === 0 ? (
+                <div className="px-5 py-3 text-xs text-white/50">No completed interviews</div>
+              ) : (
+                completedInterviews.map((iv: FirestoreInterview) => (
+                  <div key={iv.id} className="flex items-center gap-3 px-5 py-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
+                      {iv.candidateId.slice(0, 2).toUpperCase()}
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-white">{iv.candidateId}</div>
+                      <div className="text-xs text-white/50">{iv.jobId}</div>
+                    </div>
+                    {iv.overallScore && (
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-white">{iv.overallScore}</div>
+                        <div className="text-[10px] text-white/40">overall</div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -843,92 +901,108 @@ function InterviewsPage() {
   );
 }
 
-function OnboardingPage() {
+interface OnboardingPageProps {
+  onboarding: FirestoreOnboarding[];
+}
+
+function OnboardingPage({ onboarding }: OnboardingPageProps) {
   return (
     <div>
       <PageHeader title="Onboarding" description="Track document verification and joining status for selected candidates." />
       <div className="grid grid-cols-1 gap-3">
-        {mockOnboarding.map((o) => {
-          const docs = [
-            { key: "idDoc" as const, label: "Government ID" },
-            { key: "offerLetter" as const, label: "Offer Letter" },
-            { key: "education" as const, label: "Education" },
-            { key: "backgroundCheck" as const, label: "Background Check" },
-          ];
-          const progress = docs.filter((d) => o.documents[d.key] === "approved").length;
-          return (
-            <div key={o.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-              <div className="mb-4 flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
-                    {o.candidateName.split(" ").map((n) => n[0]).join("")}
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-white">{o.candidateName}</div>
-                    <div className="text-xs text-white/50">{o.role} · {o.company} · Joins {o.joiningDate}</div>
-                  </div>
-                </div>
-                <Badge
-                  tone={
-                    o.overallStatus === "approved"
-                      ? "success"
-                      : o.overallStatus === "rejected"
-                        ? "danger"
-                        : o.overallStatus === "under_review"
-                          ? "warning"
-                          : "default"
-                  }
-                >
-                  {o.overallStatus.replace("_", " ")}
-                </Badge>
-              </div>
-              <div className="mb-3 flex items-center gap-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-500 to-teal-400"
-                    style={{ width: `${(progress / docs.length) * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs text-white/60">{progress}/{docs.length}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {docs.map((d) => {
-                  const s = o.documents[d.key];
-                  return (
-                    <div key={d.key} className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-                      <div className="text-xs font-medium text-white">{d.label}</div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] capitalize text-white/60">
-                        {s === "approved" ? <CheckCircle2 className="h-3 w-3 text-teal-400" /> :
-                         s === "rejected" ? <XCircle className="h-3 w-3 text-rose-400" /> :
-                         s === "under_review" ? <Clock className="h-3 w-3 text-amber-400" /> :
-                         <Clock className="h-3 w-3 text-white/30" />}
-                        {s.replace("_", " ")}
-                      </div>
+        {onboarding.length === 0 ? (
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 text-center text-white/50">
+            No active onboarding candidates
+          </div>
+        ) : (
+          onboarding.map((o: FirestoreOnboarding) => {
+            const docs = [
+              { key: "idDoc" as const, label: "Government ID" },
+              { key: "offerLetter" as const, label: "Offer Letter" },
+              { key: "education" as const, label: "Education" },
+              { key: "backgroundCheck" as const, label: "Background Check" },
+            ];
+            const progress = docs.filter((d) => o.documents[d.key] === "approved").length;
+            return (
+              <div key={o.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+                <div className="mb-4 flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
+                      {o.candidateId.slice(0, 2).toUpperCase()}
                     </div>
-                  );
-                })}
+                    <div>
+                      <div className="text-sm font-semibold text-white">{o.candidateId}</div>
+                      <div className="text-xs text-white/50">Job {o.jobId} · Joins {o.joiningDate}</div>
+                    </div>
+                  </div>
+                  <Badge
+                    tone={
+                      o.status === "approved"
+                        ? "success"
+                        : o.status === "rejected"
+                          ? "danger"
+                          : o.status === "under_review"
+                            ? "warning"
+                            : "default"
+                    }
+                  >
+                    {o.status.replace("_", " ")}
+                  </Badge>
+                </div>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-violet-500 to-teal-400"
+                      style={{ width: `${(progress / docs.length) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-white/60">{progress}/{docs.length}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {docs.map((d) => {
+                    const s = o.documents[d.key];
+                    return (
+                      <div key={d.key} className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+                        <div className="text-xs font-medium text-white">{d.label}</div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px] capitalize text-white/60">
+                          {s === "approved" ? <CheckCircle2 className="h-3 w-3 text-teal-400" /> :
+                           s === "rejected" ? <XCircle className="h-3 w-3 text-rose-400" /> :
+                           s === "under_review" ? <Clock className="h-3 w-3 text-amber-400" /> :
+                           <Clock className="h-3 w-3 text-white/30" />}
+                          {s.replace("_", " ")}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
 
-function AnalyticsPage() {
+interface AnalyticsPageProps {
+  candidates: FirestoreUser[];
+  applications: FirestoreApplication[];
+  jobs: FirestoreJob[];
+}
+
+function AnalyticsPage({ candidates, applications, jobs }: AnalyticsPageProps) {
   const scoreDistribution = [
-    { range: "55-65", count: 18 },
-    { range: "65-75", count: 32 },
-    { range: "75-85", count: 28 },
-    { range: "85-95", count: 14 },
+    { range: "55-65", count: 0 },
+    { range: "65-75", count: 0 },
+    { range: "75-85", count: 0 },
+    { range: "85-95", count: 0 },
   ];
   const skills = [
-    { name: "React", value: 42, color: "#7c5cff" },
-    { name: "TypeScript", value: 38, color: "#5eead4" },
-    { name: "Python", value: 28, color: "#ff7eb6" },
-    { name: "Node.js", value: 22, color: "#22d3ee" },
-    { name: "Go", value: 12, color: "#f59e0b" },
+    { name: "React", value: 0, color: "#7c5cff" },
+    { name: "TypeScript", value: 0, color: "#5eead4" },
+    { name: "Python", value: 0, color: "#ff7eb6" },
+    { name: "Node.js", value: 0, color: "#22d3ee" },
+    { name: "Go", value: 0, color: "#f59e0b" },
   ];
   const trend = [
     { month: "Sep", hires: 8, apps: 120 },
@@ -947,14 +1021,14 @@ function AnalyticsPage() {
         animate={{ opacity: 1, y: 0 }}
         className="grid grid-cols-2 gap-3 md:grid-cols-4"
       >
-        <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.3 }} className="card-glow">
-          <StatCard label="Total Candidates" value={mockCandidates.length} icon={<Users className="h-4 w-4" />} accent="brand" delta="+18% MoM" />
+<motion.div whileHover={{ y: -4 }} transition={{ duration: 0.3 }} className="card-glow">
+          <StatCard label="Total Candidates" value={candidates.length} icon={<Users className="h-4 w-4" />} accent="brand" delta="+18% MoM" />
         </motion.div>
         <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.3 }} className="card-glow">
-          <StatCard label="Selected" value={42} icon={<CheckCircle2 className="h-4 w-4" />} accent="teal" delta="+24%" />
+          <StatCard label="Selected" value={applications.filter((a: FirestoreApplication) => a.status === "hired").length} icon={<CheckCircle2 className="h-4 w-4" />} accent="teal" delta="+24%" />
         </motion.div>
         <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.3 }} className="card-glow">
-          <StatCard label="Rejected" value={186} icon={<XCircle className="h-4 w-4" />} accent="pink" />
+          <StatCard label="Rejected" value={applications.filter((a: FirestoreApplication) => a.status === "rejected").length} icon={<XCircle className="h-4 w-4" />} accent="pink" />
         </motion.div>
         <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.3 }} className="card-glow">
           <StatCard label="Avg. Time to Hire" value="18d" icon={<Clock className="h-4 w-4" />} accent="amber" delta="-3d vs Q3" />

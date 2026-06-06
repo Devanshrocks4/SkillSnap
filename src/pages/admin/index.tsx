@@ -1,4 +1,5 @@
 import { Routes, Route } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -27,27 +28,84 @@ import {
 } from "recharts";
 import { DashboardLayout, PageHeader } from "../../components/DashboardLayout";
 import { StatCard, Badge } from "../../components/ui";
-import { mockCandidates, mockJobs, mockApplications, mockOnboarding } from "../../lib/mockData";
+import type { FirestoreUser, FirestoreJob, FirestoreApplication, FirestoreOnboarding } from "../../types/firestore";
+import { getAllUsers } from "../../services/userService";
+import { getAllJobs } from "../../services/jobService";
+import { getTotalApplicationCount } from "../../services/applicationService";
+import { getAllOnboarding } from "../../services/onboardingService";
+import { getUsersByRole } from "../../services/userService";
 
 export function AdminApp() {
+  const [candidates, setCandidates] = useState<FirestoreUser[]>([]);
+  const [recruiters, setRecruiters] = useState<FirestoreUser[]>([]);
+  const [jobs, setJobs] = useState<FirestoreJob[]>([]);
+  const [applications, setApplications] = useState<FirestoreApplication[]>([]);
+  const [onboarding, setOnboarding] = useState<FirestoreOnboarding[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real data from Firestore
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [candidatesData, recruitersData, jobsData, appsData, onboardingData] = await Promise.all([
+          getUsersByRole("candidate"),
+          getUsersByRole("recruiter"),
+          getAllJobs(),
+          getTotalApplicationCount().then(count => {
+            // Return mock array with count for now since getTotalApplicationCount returns number
+            return Array(count).fill(null).map((_, i) => ({ id: `app-${i}` })) as unknown as FirestoreApplication[];
+          }),
+          getAllOnboarding(),
+        ]);
+        setCandidates(candidatesData);
+        setRecruiters(recruitersData);
+        setJobs(jobsData);
+        setApplications(appsData as FirestoreApplication[]);
+        setOnboarding(onboardingData);
+      } catch (error) {
+        console.error("Error fetching admin data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
   return (
     <DashboardLayout role="admin">
       <Routes>
-        <Route index element={<AdminDashboard />} />
-        <Route path="users" element={<UsersPage />} />
-        <Route path="recruiters" element={<RecruitersPage />} />
-        <Route path="analytics" element={<GlobalAnalytics />} />
+        <Route index element={<AdminDashboard 
+          candidates={candidates} 
+          recruiters={recruiters}
+          jobs={jobs} 
+          applicationsCount={applications.length}
+          onboarding={onboarding}
+        />} />
+        <Route path="users" element={<UsersPage candidates={candidates} />} />
+        <Route path="recruiters" element={<RecruitersPage recruiters={recruiters} />} />
+        <Route path="analytics" element={<GlobalAnalytics 
+          applications={applications}
+          onboarding={onboarding}
+        />} />
         <Route path="settings" element={<SettingsPage />} />
       </Routes>
     </DashboardLayout>
   );
 }
 
-function AdminDashboard() {
-  const totalUsers = mockCandidates.length + 8; // + recruiters + admins
-  const activeRecruiters = 8;
-  const totalJobs = mockJobs.length;
-  const totalApplications = mockApplications.length;
+interface AdminDashboardProps {
+  candidates: FirestoreUser[];
+  recruiters: FirestoreUser[];
+  jobs: FirestoreJob[];
+  applicationsCount: number;
+  onboarding: FirestoreOnboarding[];
+}
+
+function AdminDashboard({ candidates, recruiters, jobs, applicationsCount, onboarding }: AdminDashboardProps) {
+  const totalUsers = candidates.length + recruiters.length;
+  const activeRecruiters = recruiters.length;
+  const totalJobs = jobs.length;
+  const totalApplications = applicationsCount;
 
   const monthlyGrowth = [
     { month: "Jul", users: 120, jobs: 12 },
@@ -126,11 +184,11 @@ function AdminDashboard() {
             <div className="text-sm font-semibold text-white">Recent Signups</div>
             <Badge tone="brand">Last 7 days</Badge>
           </div>
-          <div className="divide-y divide-white/5">
-            {mockCandidates.slice(0, 6).map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+<div className="divide-y divide-white/5">
+            {candidates.slice(0, 6).map((c: FirestoreUser) => (
+              <div key={c.uid} className="flex items-center gap-3 px-5 py-3">
                 <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
-                  {c.name.split(" ").map((n) => n[0]).join("")}
+                  {c.name.split(" ").map((n: string) => n[0]).join("")}
                 </div>
                 <div className="flex-1">
                   <div className="text-sm font-medium text-white">{c.name}</div>
@@ -146,10 +204,10 @@ function AdminDashboard() {
         <div className="rounded-2xl border border-white/5 bg-white/[0.02]">
           <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
             <div className="text-sm font-semibold text-white">Top Active Jobs</div>
-            <Badge tone="teal">{mockJobs.length} open</Badge>
+            <Badge tone="teal">{jobs.length} open</Badge>
           </div>
           <div className="divide-y divide-white/5">
-            {mockJobs.slice(0, 6).map((j) => (
+            {jobs.slice(0, 6).map((j: FirestoreJob) => (
               <div key={j.id} className="flex items-center gap-3 px-5 py-3">
                 <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500/20 to-teal-400/20 text-xs font-semibold text-white">
                   {j.company.slice(0, 1)}
@@ -168,7 +226,11 @@ function AdminDashboard() {
   );
 }
 
-function UsersPage() {
+interface UsersPageProps {
+  candidates: FirestoreUser[];
+}
+
+function UsersPage({ candidates }: UsersPageProps) {
   return (
     <div>
       <PageHeader title="Users" description="Manage all platform users." />
@@ -181,7 +243,7 @@ function UsersPage() {
           <div className="col-span-1 text-right">Action</div>
         </div>
         <div className="divide-y divide-white/5">
-          {mockCandidates.map((c) => (
+          {candidates.map((c: FirestoreUser) => (
             <div key={c.id} className="grid grid-cols-12 items-center gap-4 px-5 py-3">
               <div className="col-span-4 flex items-center gap-3">
                 <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-xs font-semibold text-white">
@@ -207,18 +269,16 @@ function UsersPage() {
   );
 }
 
-function RecruitersPage() {
-  const recruiters = [
-    { id: "r1", name: "Alex Rivera", email: "alex@nebulalabs.com", jobs: 4, hires: 12 },
-    { id: "r2", name: "Sarah Kim", email: "sarah@lumenrobotics.com", jobs: 3, hires: 8 },
-    { id: "r3", name: "Marcus Chen", email: "marcus@helioscloud.com", jobs: 2, hires: 6 },
-    { id: "r4", name: "Priya Patel", email: "priya@orbitanalytics.com", jobs: 1, hires: 4 },
-  ];
+interface RecruitersPageProps {
+  recruiters: FirestoreUser[];
+}
+
+function RecruitersPage({ recruiters }: RecruitersPageProps) {
   return (
     <div>
       <PageHeader title="Recruiters" description="Manage recruiter accounts and permissions." />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {recruiters.map((r) => (
+        {recruiters.map((r: FirestoreUser) => (
           <div key={r.id} className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
             <div className="mb-3 flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-teal-400 text-sm font-semibold text-white">
@@ -247,7 +307,12 @@ function RecruitersPage() {
   );
 }
 
-function GlobalAnalytics() {
+interface GlobalAnalyticsProps {
+  applications: FirestoreApplication[];
+  onboarding: FirestoreOnboarding[];
+}
+
+function GlobalAnalytics({ applications, onboarding }: GlobalAnalyticsProps) {
   const roleDistribution = [
     { role: "Frontend", count: 18 },
     { role: "Backend", count: 14 },
@@ -310,7 +375,7 @@ function GlobalAnalytics() {
             { label: "Resume Screens / day", value: "1,247" },
             { label: "AI Evaluations", value: "892" },
             { label: "Interviews Scheduled", value: "134" },
-            { label: "Onboarding Active", value: mockOnboarding.length },
+            { label: "Onboarding Active", value: onboarding.length },
           ].map((m) => (
             <div key={m.label} className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
               <div className="text-2xl font-semibold text-white">{m.value}</div>
