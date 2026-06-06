@@ -55,10 +55,10 @@ export type ApplicationStatus =
 
 export interface Application {
   id: string;
+  jobId: string;
   candidateId: string;
   candidateName: string;
   candidateEmail: string;
-  jobId: string;
   jobTitle: string;
   company: string;
   status: ApplicationStatus;
