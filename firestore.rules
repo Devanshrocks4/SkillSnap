@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: get current user role
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isAdmin() { return userRole() == 'admin'; }
+    function isRecruiter() { return userRole() in ['recruiter', 'admin']; }
+    function isAuthenticated() { return request.auth != null; }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Candidates extended profiles
+    match /candidates/{candidateId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && request.auth.uid == candidateId;
+      allow delete: if isAdmin();
+    }
+
+    // Jobs collection
+    match /jobs/{jobId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isRecruiter();
+      allow update: if isAuthenticated() && (
+        resource.data.recruiterId == request.auth.uid || isAdmin()
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.recruiterId == request.auth.uid);
+    }
+
+    // Applications collection
+    match /applications/{appId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.candidateId == request.auth.uid || isRecruiter()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Interviews collection
+    match /interviews/{interviewId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isRecruiter();
+      allow update: if isAuthenticated() && (
+        resource.data.recruiterId == request.auth.uid ||
+        resource.data.candidateId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Onboarding collection
+    match /onboarding/{onboardingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isRecruiter();
+      allow update: if isAuthenticated() && isRecruiter();
+      allow delete: if isAdmin();
+    }
+  }
+}

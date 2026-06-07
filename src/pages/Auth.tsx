@@ -1,0 +1,310 @@
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  Sparkles,
+  ArrowLeft,
+  Mail,
+  Lock,
+  User,
+  Shield,
+  Briefcase,
+  UserCircle2,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+import { Logo, AuroraBackground } from "../components/ui";
+import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../contexts/ToastContext";
+import type { UserRole } from "../lib/types";
+
+export function LoginPage() {
+  return <AuthShell mode="login" />;
+}
+
+export function SignupPage() {
+  return <AuthShell mode="signup" />;
+}
+
+function AuthShell({ mode }: { mode: "login" | "signup" }) {
+  const { login, signup } = useAuth();
+  const { showError, showSuccess } = useToast();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  // FIX: role is only used for signup; login reads role from Firestore
+  const [role, setRole] = useState<UserRole>("candidate");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      showError("Email and password are required.");
+      return;
+    }
+    if (mode === "signup" && !name) {
+      showError("Name is required.");
+      return;
+    }
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        // FIX: Login uses Firestore role, not UI role selector
+        const res = await login(email, password);
+        if (res.ok && res.role) {
+          showSuccess("Welcome back!");
+          // Navigate to the role stored in Firestore
+          if (res.role === "admin") navigate("/admin");
+          else if (res.role === "recruiter") navigate("/recruiter");
+          else navigate("/candidate");
+        } else {
+          showError(res.error || "Login failed");
+        }
+      } else {
+        const res = await signup({ name, email, password, role });
+        if (res.ok) {
+          showSuccess("Account created! Redirecting…");
+          // Navigate to the chosen role dashboard
+          if (role === "admin") navigate("/admin");
+          else if (role === "recruiter") navigate("/recruiter");
+          else navigate("/candidate");
+        } else {
+          showError(res.error || "Signup failed");
+        }
+      }
+    } catch {
+      showError("An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AuroraBackground>
+      <div className="min-h-screen">
+        <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6 py-12">
+          <div className="grid w-full grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
+            {/* Left panel */}
+            <div className="hidden lg:flex lg:flex-col lg:justify-between">
+              <div>
+                <Link
+                  to="/"
+                  className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white transition"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back to home
+                </Link>
+                <div className="mt-10">
+                  <Logo size={36} />
+                  <h1 className="mt-8 text-4xl font-bold tracking-tight">
+                    <span className="gradient-text">Hire the best,</span>
+                    <br />
+                    <span className="gradient-text-brand">faster than ever.</span>
+                  </h1>
+                  <p className="mt-4 max-w-md text-white/60">
+                    Sign in to screen resumes, rank candidates, and run
+                    AI-assisted interviews in one workspace.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-10">
+                <div className="text-xs font-medium uppercase tracking-wider text-white/40 mb-3">
+                  Role-based access
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { r: "candidate" as UserRole, label: "Candidate", icon: UserCircle2, desc: "Apply & track jobs" },
+                    { r: "recruiter" as UserRole, label: "Recruiter", icon: Briefcase, desc: "Post & screen roles" },
+                    { r: "admin" as UserRole, label: "Admin", icon: Shield, desc: "Manage platform" },
+                  ].map(({ r, label, icon: Icon, desc }) => (
+                    <div
+                      key={r}
+                      className="flex flex-col items-center gap-1.5 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-center"
+                    >
+                      <Icon className="h-4 w-4 text-violet-300" />
+                      <span className="text-white/80 font-medium">{label}</span>
+                      <span className="text-white/40 text-[10px]">{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Form */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="relative"
+            >
+              <div className="lg:hidden mb-6">
+                <Link
+                  to="/"
+                  className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white transition"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back
+                </Link>
+                <div className="mt-4">
+                  <Logo />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d0d16]/80 to-[#05050a]/80 p-8 shadow-2xl backdrop-blur-xl">
+                <div className="mb-6">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[11px] text-violet-300">
+                    <Sparkles className="h-3 w-3" /> Firebase Auth
+                  </div>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    {mode === "login" ? "Welcome back" : "Create your account"}
+                  </h2>
+                  <p className="mt-1 text-sm text-white/50">
+                    {mode === "login"
+                      ? "Sign in — your role is loaded from your profile."
+                      : "Choose your role — it determines your dashboard."}
+                  </p>
+                </div>
+
+                {/* Role selector — only shown on signup */}
+                {mode === "signup" && (
+                  <div className="mb-5">
+                    <div className="mb-2 text-xs font-medium text-white/60">I am a…</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { r: "candidate" as UserRole, label: "Candidate", icon: UserCircle2 },
+                        { r: "recruiter" as UserRole, label: "Recruiter", icon: Briefcase },
+                        { r: "admin" as UserRole, label: "Admin", icon: Shield },
+                      ].map(({ r, label, icon: Icon }) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setRole(r)}
+                          className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs transition ${
+                            role === r
+                              ? "border-violet-500/40 bg-violet-500/10 text-violet-200"
+                              : "border-white/10 bg-white/[0.02] text-white/60 hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={submit} className="space-y-3">
+                  {mode === "signup" && (
+                    <Field
+                      label="Full name"
+                      icon={User}
+                      value={name}
+                      onChange={setName}
+                      placeholder="Ada Lovelace"
+                    />
+                  )}
+                  <Field
+                    label="Email"
+                    icon={Mail}
+                    value={email}
+                    onChange={setEmail}
+                    type="email"
+                    placeholder="you@company.com"
+                  />
+                  <div className="block">
+                    <div className="mb-1 text-xs font-medium text-white/60">Password</div>
+                    <div className="relative">
+                      <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                      <input
+                        type={showPass ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2.5 pl-10 pr-10 text-sm text-white placeholder-white/30 transition focus:border-violet-500/40 focus:bg-white/[0.05] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPass((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition"
+                        tabIndex={-1}
+                      >
+                        {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="btn-glow inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-violet-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:shadow-violet-500/40 disabled:opacity-60"
+                  >
+                    {loading ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Please wait…
+                      </>
+                    ) : mode === "login" ? (
+                      "Sign in"
+                    ) : (
+                      "Create account"
+                    )}
+                  </button>
+                </form>
+
+                <div className="mt-6 text-center text-xs text-white/50">
+                  {mode === "login" ? (
+                    <>
+                      Don't have an account?{" "}
+                      <Link to="/signup" className="text-violet-300 hover:text-violet-200">
+                        Sign up
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      Already have an account?{" "}
+                      <Link to="/login" className="text-violet-300 hover:text-violet-200">
+                        Sign in
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    </AuroraBackground>
+  );
+}
+
+function Field({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: string;
+  icon: React.ElementType;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1 text-xs font-medium text-white/60">{label}</div>
+      <div className="relative">
+        <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2.5 pl-10 pr-3 text-sm text-white placeholder-white/30 transition focus:border-violet-500/40 focus:bg-white/[0.05] focus:outline-none"
+        />
+      </div>
+    </label>
+  );
+}
