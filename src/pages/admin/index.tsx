@@ -22,6 +22,7 @@ async function getAllApplications(): Promise<FirestoreApplication[]> {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as FirestoreApplication));
 }
 
+
 export function AdminApp() {
   const [allUsers, setAllUsers] = useState<FirestoreUser[]>([]);
   const [candidates, setCandidates] = useState<FirestoreUser[]>([]);
@@ -30,29 +31,71 @@ export function AdminApp() {
   const [applications, setApplications] = useState<FirestoreApplication[]>([]);
   const [onboarding, setOnboarding] = useState<FirestoreOnboarding[]>([]);
   const [loading, setLoading] = useState(true);
+  console.log("ADMIN APP LOADED");
+  // const fetchAll = async () => {
+  //   try {
+  //     const [usersData, cData, rData, jobsData, appsData, onboardingData] = await Promise.all([
+  //       getAllUsers(),
+  //       getUsersByRole("candidate"),
+  //       getUsersByRole("recruiter"),
+  //       getAllJobs(),
+  //       getAllApplications(),
+  //       getAllOnboarding(),
+  //     ]);
+  //     setAllUsers(usersData);
+  //     setCandidates(cData);
+  //     setRecruiters(rData);
+  //     setJobs(jobsData);
+  //     setApplications(appsData);
+  //     setOnboarding(onboardingData);
+  //   } catch (error) {
+  //     console.error("Admin data fetch error:", error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+const fetchAll = async () => {
+  try {
+    const results = await Promise.allSettled([
+      getAllUsers(),
+      getUsersByRole("candidate"),
+      getUsersByRole("recruiter"),
+      getAllJobs(),
+      getAllApplications(),
+      getAllOnboarding(),
+    ]);
 
-  const fetchAll = async () => {
-    try {
-      const [usersData, cData, rData, jobsData, appsData, onboardingData] = await Promise.all([
-        getAllUsers(),
-        getUsersByRole("candidate"),
-        getUsersByRole("recruiter"),
-        getAllJobs(),
-        getAllApplications(),
-        getAllOnboarding(),
-      ]);
-      setAllUsers(usersData);
-      setCandidates(cData);
-      setRecruiters(rData);
-      setJobs(jobsData);
-      setApplications(appsData);
-      setOnboarding(onboardingData);
-    } catch (error) {
-      console.error("Admin data fetch error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log("ADMIN RESULTS:", results);
+
+    setAllUsers(
+      results[0].status === "fulfilled" ? results[0].value : []
+    );
+
+    setCandidates(
+      results[1].status === "fulfilled" ? results[1].value : []
+    );
+
+    setRecruiters(
+      results[2].status === "fulfilled" ? results[2].value : []
+    );
+
+    setJobs(
+      results[3].status === "fulfilled" ? results[3].value : []
+    );
+
+    setApplications(
+      results[4].status === "fulfilled" ? results[4].value : []
+    );
+
+    setOnboarding(
+      results[5].status === "fulfilled" ? results[5].value : []
+    );
+  } catch (error) {
+    console.error("Admin data fetch error:", error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => { fetchAll(); }, []);
 
